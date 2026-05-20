@@ -152,6 +152,7 @@ async def main():
             engine=args.search_engine,
             headless=args.headless,
             download_dir=args.download_dir,
+            user_data_dir="./nodriver_profile", 
         )
         crawler.links = result.links
         downloaded = await asyncio.to_thread(crawler.download_all)

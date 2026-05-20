@@ -59,6 +59,7 @@ class Crawler:
         timeout: int = 20,
         download_dir: str = "./downloads",
         stealth_mode: bool = True,
+        user_data_dir: str | Path | None = None,  # <-- ADD THIS LINE
     ):
         self.query = query
         self.engine = engine
@@ -67,6 +68,8 @@ class Crawler:
         self.timeout = timeout
         self.download_dir = Path(download_dir)
         self.stealth_mode = stealth_mode
+        self.user_data_dir = Path(user_data_dir) if user_data_dir else None  # <-- ADD THIS LINE
+        
         self.results: list[str] = []
         self.links: list[str] = []
         self.structured_results: list[SearchResult] = []
@@ -74,7 +77,6 @@ class Crawler:
         self._searched = False
 
         self.download_dir.mkdir(parents=True, exist_ok=True)
-
     # ============================================================
     # 🔥 NODRIVER ENGINE
     # ============================================================
@@ -97,10 +99,19 @@ class Crawler:
                         f"--window-size={random.randint(1280,1920)},{random.randint(720,1080)}",
                     ])
 
-                self._nodriver_driver = await uc.start(
-                    headless=self.headless,
-                    browser_args=browser_args,
-                )
+                # Prepare startup arguments
+                start_kwargs = {
+                    "headless": self.headless,
+                    "browser_args": browser_args,
+                }
+
+                # If a custom profile directory is set, resolve it to an absolute path and add it
+                if self.user_data_dir:
+                    absolute_path = str(self.user_data_dir.resolve())
+                    start_kwargs["user_data_dir"] = absolute_path
+                    print(f"[nodriver] 📂 Using persistent profile directory: {absolute_path}")
+
+                self._nodriver_driver = await uc.start(**start_kwargs)
         return self._nodriver_driver
 
     async def nodriver_search(self) -> str | None:
