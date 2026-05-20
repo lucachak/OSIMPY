@@ -1,0 +1,4 @@
+./output/
+./downloads/
+.venv/
+node_modules/
