@@ -1,0 +1,10 @@
+{
+  "dork": "site:company.com filetype:env \"DB_PASSWORD\" -github -gitlab -bitbucket",
+  "search_engine": "nodriver",
+  "file_type": "powerful_combination",
+  "search_filter": null,
+  "search_query": "report",
+  "links": [],
+  "timestamp": "2026-05-20T23:52:24.247470",
+  "link_count": 0
+}

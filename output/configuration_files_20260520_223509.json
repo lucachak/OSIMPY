@@ -1,0 +1,10 @@
+{
+  "dork": "filetype:env \"DB_PASSWORD\" -github.com",
+  "search_engine": "duckduckgo",
+  "file_type": "configuration_files",
+  "search_filter": "github.com",
+  "search_query": "DB_PASSWORD",
+  "links": [],
+  "timestamp": "2026-05-20T22:35:09.733474",
+  "link_count": 0
+}

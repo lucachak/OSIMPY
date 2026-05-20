@@ -1,0 +1,10 @@
+{
+  "dork": "site:*.edu intitle:\"index of\" /admin",
+  "search_engine": "nodriver",
+  "file_type": "general",
+  "search_filter": ".edu",
+  "search_query": "courses",
+  "links": [],
+  "timestamp": "2026-05-20T23:52:22.607825",
+  "link_count": 0
+}

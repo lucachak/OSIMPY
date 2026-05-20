@@ -1,0 +1,10 @@
+{
+  "dork": "site:*.edu intitle:\"Live View\" inurl:\"/view/\"",
+  "search_engine": "nodriver",
+  "file_type": "ip_cameras",
+  "search_filter": ".edu",
+  "search_query": "campus",
+  "links": [],
+  "timestamp": "2026-05-20T23:52:36.017920",
+  "link_count": 0
+}

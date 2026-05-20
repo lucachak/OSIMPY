@@ -1,0 +1,12 @@
+{
+  "dork": "filetype:pdf \"financial report\" site:company.com",
+  "search_engine": "duckduckgo",
+  "file_type": "pdfs",
+  "search_filter": null,
+  "search_query": "financial report",
+  "links": [
+    "https://duckduckgo.com/"
+  ],
+  "timestamp": "2026-05-20T23:44:44.294508",
+  "link_count": 1
+}

@@ -1,0 +1,10 @@
+{
+  "dork": "filetype:pdf \"annual report\" site:company.com",
+  "search_engine": "nodriver",
+  "file_type": "pdfs",
+  "search_filter": null,
+  "search_query": "annual report",
+  "links": [],
+  "timestamp": "2026-05-20T23:51:41.355404",
+  "link_count": 0
+}

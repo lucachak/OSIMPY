@@ -1,0 +1,13 @@
+{
+  "dork": "filetype:pdf \"financial report\" site:*.com.br",
+  "search_engine": "auto",
+  "file_type": "pdfs",
+  "search_filter": ".com.br",
+  "search_query": "financial report",
+  "links": [
+    "https://s.yimg.com/zz/combo?pv/static/lib/srp-header-css-scout_78cd9e66005fb8e03b0a2e6f98b93a66_1466b.css",
+    "https://s.yimg.com/pv/static/lib/uds-srp_cb7ace6ad3263d4de6c9660fffa133cf_aff81.css"
+  ],
+  "timestamp": "2026-05-21T00:04:02.939436",
+  "link_count": 2
+}

@@ -1,0 +1,10 @@
+{
+  "dork": "site:*.edu ext:php intitle:\"phpinfo\"",
+  "search_engine": "nodriver",
+  "file_type": "php_info",
+  "search_filter": ".edu",
+  "search_query": "PHP Version",
+  "links": [],
+  "timestamp": "2026-05-20T23:52:42.749893",
+  "link_count": 0
+}

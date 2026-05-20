@@ -1,0 +1,10 @@
+{
+  "dork": "intitle:\"Live View\" inurl:\"/view/\"",
+  "search_engine": "nodriver",
+  "file_type": "ip_cameras",
+  "search_filter": null,
+  "search_query": "webcam",
+  "links": [],
+  "timestamp": "2026-05-20T23:52:07.607902",
+  "link_count": 0
+}

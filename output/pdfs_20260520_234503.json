@@ -1,0 +1,10 @@
+{
+  "dork": "filetype:pdf \"financial report\" site:company.com",
+  "search_engine": "nodriver",
+  "file_type": "pdfs",
+  "search_filter": null,
+  "search_query": "financial report",
+  "links": [],
+  "timestamp": "2026-05-20T23:45:03.398129",
+  "link_count": 0
+}

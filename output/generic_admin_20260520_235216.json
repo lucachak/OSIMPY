@@ -1,0 +1,10 @@
+{
+  "dork": "site:*.edu inurl:admin intitle:login",
+  "search_engine": "nodriver",
+  "file_type": "generic_admin",
+  "search_filter": ".edu",
+  "search_query": "login",
+  "links": [],
+  "timestamp": "2026-05-20T23:52:16.483821",
+  "link_count": 0
+}
