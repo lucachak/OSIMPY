@@ -1,6 +1,5 @@
 # Pastas geradas e artefatos
 output/
 downloads/
-chrome_profile/
 __pycache__/
 .venv/
