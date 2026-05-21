@@ -89,13 +89,14 @@ class Crawler:
                     "--no-sandbox",
                     "--disable-blink-features=AutomationControlled",
                     "--disable-dev-shm-usage",
-                    "--disable-gpu",
                     "--disable-infobars",
                     "--disable-notifications",
+                    "--ozone-platform-hint=auto",
+                    "--enable-features=UseOzonePlatform",
                 ]
                 if self.stealth_mode:
                     browser_args.extend([
-                        "--disable-features=IsolateOrigins,site-per-process",
+                        "--disable-features=IsolateOrigins,site-per-process,UseOzonePlatform",
                         f"--window-size={random.randint(1280,1920)},{random.randint(720,1080)}",
                     ])
 
@@ -103,6 +104,8 @@ class Crawler:
                 start_kwargs = {
                     "headless": self.headless,
                     "browser_args": browser_args,
+                    "no_sandbox": True,
+                    "sandbox": False,
                 }
 
                 # If a custom profile directory is set, resolve it to an absolute path and add it
@@ -111,11 +114,20 @@ class Crawler:
                     start_kwargs["user_data_dir"] = absolute_path
                     print(f"[nodriver] 📂 Using persistent profile directory: {absolute_path}")
 
+                    # Prevent lock issues by removing orphaned SingletonLock
+                    lock_file = Path(absolute_path) / "SingletonLock"
+                    if lock_file.exists() or lock_file.is_symlink():
+                        try:
+                            lock_file.unlink()
+                            print("[nodriver] 🔓 Cleaned up existing browser SingletonLock to prevent startup failure.")
+                        except Exception as e:
+                            print(f"[nodriver] ⚠️ Failed to remove SingletonLock: {e}")
+
                 self._nodriver_driver = await uc.start(**start_kwargs)
         return self._nodriver_driver
 
     async def nodriver_search(self) -> str | None:
-        """Search Google using a real browser via nodriver."""
+        """Search Google using a real browser via nodriver with pagination."""
         if not HAS_NODRIVER:
             print("[nodriver] Not installed. Skipping.")
             return None
@@ -123,57 +135,91 @@ class Crawler:
         try:
             driver = await self._get_nodriver_driver()
             encoded_query = parse.quote(self.query)
-            url = f"https://www.google.com/search?q={encoded_query}&num={self.max_results}"
+            
+            start_index = 0
+            page_num = 1
+            last_results_count = -1
+            
+            while len(self.structured_results) < self.max_results:
+                url = f"https://www.google.com/search?q={encoded_query}&start={start_index}"
+                print(f"[nodriver] 🔍 Searching page {page_num} (start={start_index})...")
+                
+                page = await driver.get(url, new_tab=True)
+                await page.wait(random.uniform(1.5, 3.0))
 
-            print(f"[nodriver] 🔍 Searching: {self.query[:80]}...")
-            page = await driver.get(url, new_tab=True)
-            await page.wait(random.uniform(1.5, 3.0))
+                # Human-like scroll
+                await page.evaluate(f"window.scrollBy(0, {random.randint(200, 600)})")
+                await page.wait(random.uniform(0.5, 1.5))
 
-            # Human-like scroll
-            await page.evaluate(f"window.scrollBy(0, {random.randint(200, 600)})")
-            await page.wait(random.uniform(0.5, 1.5))
+                html = await page.get_content()
+                self.results.append(html)
 
-            html = await page.get_content()
+                # Extract structured results via JavaScript
+                structured_json = await page.evaluate("""
+                    JSON.stringify((() => {
+                        const results = [];
+                        document.querySelectorAll('.g, [data-sokoban-container]').forEach(el => {
+                            const link = el.querySelector('a[href]');
+                            const title = el.querySelector('h3');
+                            const snippet = el.querySelector('.VwiC3b, .st');
+                            if (link) {
+                                results.push({
+                                    url: link.href,
+                                    title: title?.innerText || '',
+                                    snippet: snippet?.innerText || ''
+                                });
+                            }
+                        });
+                        return results;
+                    })())
+                """)
+                import json
+                structured = json.loads(structured_json or "[]")
 
-            # Extract structured results via JavaScript
-            structured_json = await page.evaluate("""
-                JSON.stringify((() => {
-                    const results = [];
-                    document.querySelectorAll('.g, [data-sokoban-container]').forEach(el => {
-                        const link = el.querySelector('a[href]');
-                        const title = el.querySelector('h3');
-                        const snippet = el.querySelector('.VwiC3b, .st');
-                        if (link) {
-                            results.push({
-                                url: link.href,
-                                title: title?.innerText || '',
-                                snippet: snippet?.innerText || ''
-                            });
-                        }
-                    });
-                    return results;
-                })())
-            """)
-            import json
-            structured = json.loads(structured_json or "[]")
+                new_links_added = 0
+                for item in structured:
+                    url = item.get("url", "")
+                    if url and not url.startswith(("https://www.google", "https://support.google")):
+                        if "/url?q=" in url:
+                            url = url.split("/url?q=")[1].split("&")[0]
+                        
+                        if not any(r.url == url for r in self.structured_results):
+                            self.structured_results.append(SearchResult(
+                                url=url,
+                                title=item.get("title", ""),
+                                snippet=item.get("snippet", ""),
+                                source_engine="nodriver",
+                            ))
+                            new_links_added += 1
 
-            for item in structured[:self.max_results]:
-                url = item.get("url", "")
-                if url and not url.startswith(("https://www.google", "https://support.google")):
-                    if "/url?q=" in url:
-                        url = url.split("/url?q=")[1].split("&")[0]
-                    self.structured_results.append(SearchResult(
-                        url=url,
-                        title=item.get("title", ""),
-                        snippet=item.get("snippet", ""),
-                        source_engine="nodriver",
-                    ))
+                # Fallback: Extract using robust precompiled regex if JS evaluation found 0 links
+                if new_links_added == 0:
+                    regex_links = self.extract_links(html)
+                    for r_link in regex_links:
+                        if not any(r.url == r_link for r in self.structured_results):
+                            self.structured_results.append(SearchResult(
+                                url=r_link,
+                                title="Google Result",
+                                snippet="Organic result from Google",
+                                source_engine="nodriver",
+                            ))
+                            new_links_added += 1
 
-            self.results.append(html)
+                await page.close()
+                print(f"[nodriver] Page {page_num} processed. Added {new_links_added} new results. Total: {len(self.structured_results)}")
+
+                if new_links_added == 0 or len(self.structured_results) == last_results_count:
+                    print("[nodriver] No new results found. Stopping pagination.")
+                    break
+
+                last_results_count = len(self.structured_results)
+                start_index += 10
+                page_num += 1
+                
+                await asyncio.sleep(random.uniform(1.0, 2.5))
+
             self._stats.nodriver_success += 1
-            await page.close()
-            print(f"[nodriver] ✅ Found {len(self.structured_results)} results")
-            return html
+            return self.results[0] if self.results else None
 
         except Exception as e:
             print(f"[nodriver] ❌ Error: {e}")
@@ -212,79 +258,133 @@ class Crawler:
     # ============================================================
 
     def google_search(self) -> str | None:
-        """Search Google via urllib (often blocked)."""
-        encoded_query = parse.quote(self.query)
-        url = f"https://www.google.com/search?q={encoded_query}"
-
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "text/html,application/xhtml+xml",
-            "Accept-Language": "en-US,en;q=0.9",
-        }
-
-        cookie_jar = http.cookiejar.CookieJar()
-        opener = request.build_opener(request.HTTPCookieProcessor(cookie_jar))
-
+        """Search Google via urllib with pagination."""
         try:
+            cookie_jar = http.cookiejar.CookieJar()
+            opener = request.build_opener(request.HTTPCookieProcessor(cookie_jar))
+            
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "en-US,en;q=0.9",
+            }
+            
             req_home = request.Request("https://www.google.com", headers=headers)
             opener.open(req_home, timeout=5)
-
-            req_search = request.Request(url, headers=headers)
-            with opener.open(req_search, timeout=self.timeout) as response:
-                html = response.read().decode("utf-8", errors="ignore")
-
-            if "retry/enablejs" in html or "nossl" in html:
-                raise Exception("Blocked by Google (JS challenge)")
-
-            self.results.append(html)
+            
+            start_index = 0
+            page_num = 1
+            last_results_count = -1
+            
+            while len(self.structured_results) < self.max_results:
+                encoded_query = parse.quote(self.query)
+                url = f"https://www.google.com/search?q={encoded_query}&start={start_index}"
+                print(f"[Google/urllib] 🔍 Searching page {page_num} (start={start_index})...")
+                
+                req_search = request.Request(url, headers=headers)
+                html = None
+                with opener.open(req_search, timeout=self.timeout) as response:
+                    html = response.read().decode("utf-8", errors="ignore")
+                
+                if not html or "retry/enablejs" in html or "nossl" in html:
+                    print("[Google/urllib] Blocked by Google (JS challenge) or empty response.")
+                    break
+                    
+                self.results.append(html)
+                
+                current_links = self.extract_links(html)
+                new_links_added = 0
+                for link in current_links:
+                    if not any(r.url == link for r in self.structured_results):
+                        self.structured_results.append(SearchResult(
+                            url=link,
+                            title="Google Result",
+                            snippet="Organic result from Google",
+                            source_engine="google",
+                        ))
+                        new_links_added += 1
+                
+                print(f"[Google/urllib] Page {page_num} processed. Added {new_links_added} new results. Total: {len(self.structured_results)}")
+                
+                if new_links_added == 0 or len(self.structured_results) == last_results_count:
+                    break
+                    
+                last_results_count = len(self.structured_results)
+                start_index += 10
+                page_num += 1
+                
+                time.sleep(random.uniform(1.5, 3.0))
+                
             self._stats.google_success += 1
-            return html
+            return self.results[0] if self.results else None
+            
         except Exception as e:
             print(f"[Google/urllib] Error: {e}")
             return None
 
     def yahoo_search(self) -> str | None:
-        """Search Yahoo via urllib and extract target URLs from redirects."""
+        """Search Yahoo via urllib and extract target URLs from redirects with pagination."""
         try:
             import re
-            encoded_query = parse.quote(self.query)
-            url = f"https://search.yahoo.com/search?p={encoded_query}"
-            req = request.Request(
-                url,
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
-            )
-            with request.urlopen(req, timeout=10) as response:
-                html = response.read().decode("utf-8")
+            
+            start_index = 1
+            page_num = 1
+            last_results_count = -1
+            
+            while len(self.structured_results) < self.max_results:
+                encoded_query = parse.quote(self.query)
+                url = f"https://search.yahoo.com/search?p={encoded_query}&b={start_index}"
+                print(f"[yahoo] 🔍 Searching page {page_num} (start={start_index})...")
+                
+                req = request.Request(
+                    url,
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+                )
+                
+                html = None
+                with request.urlopen(req, timeout=10) as response:
+                    html = response.read().decode("utf-8")
+                
+                if not html:
+                    break
+                    
+                self.results.append(html)
                 
                 # Extract all r.search.yahoo.com links
                 raw_redirects = re.findall(r'href="(https://r\.search\.yahoo\.com/[^"]+)"', html)
                 
-                extracted_urls = []
+                new_links_added = 0
                 for redirect in raw_redirects:
                     if "/RU=" in redirect:
                         try:
                             ru_part = redirect.split("/RU=")[1].split("/RK=")[0]
                             real_url = parse.unquote(ru_part)
-                            # Basic validation: ensure it's a real target URL
                             if real_url.startswith("http") and "yahoo.com" not in real_url:
-                                extracted_urls.append(real_url)
+                                if not any(r.url == real_url for r in self.structured_results):
+                                    self.structured_results.append(SearchResult(
+                                        url=real_url,
+                                        title="Yahoo Result",
+                                        snippet="Organic result from Yahoo Search",
+                                        source_engine="yahoo",
+                                    ))
+                                    new_links_added += 1
                         except Exception:
                             continue
                 
-                # Store structured results if we got them
-                if extracted_urls:
-                    for target_url in extracted_urls:
-                        self.structured_results.append(SearchResult(
-                            url=target_url,
-                            title="Yahoo Result",
-                            snippet="Organic result from Yahoo Search",
-                            source_engine="yahoo",
-                        ))
-                    self._stats.google_success += 1  # Track success using existing stat slot
-                    print(f"[yahoo] ✅ Found {len(extracted_urls)} results")
-                    return html
-                else:
-                    return None
+                print(f"[yahoo] Page {page_num} processed. Added {new_links_added} new results. Total: {len(self.structured_results)}")
+                
+                if new_links_added == 0 or len(self.structured_results) == last_results_count:
+                    break
+                    
+                last_results_count = len(self.structured_results)
+                start_index += 10
+                page_num += 1
+                
+                time.sleep(random.uniform(1.0, 2.0))
+                
+            self._stats.google_success += 1  # Track success using existing stat slot
+            return self.results[0] if self.results else None
+            
         except Exception as e:
             print(f"[yahoo] Error: {e}")
             return None

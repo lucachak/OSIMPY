@@ -1,17 +1,18 @@
-import re
 import json
+import re
 import time
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from dataclasses import dataclass, asdict, field
 
-from helpers.manual import Manual
 from helpers.Crawler import Crawler
+from helpers.manual import Manual
 
 
 @dataclass
 class ExecutionResult:
     """Structured result from a single execution."""
+
     dork: str
     search_engine: str
     file_type: str
@@ -44,18 +45,8 @@ class Executor:
         headless: bool = True,
         max_results: int = 30,
         output_dir: str = "./output",
+        user_data_dir: str | Path | None = None,  # <-- 1. ADICIONE AQUI
     ):
-        """
-        Args:
-            search_engine: "google", "duckduckgo", "nodriver", "auto"
-            dorks_option: Top-level key in dorking_commands (e.g., "find_files")
-            file_type: Sub-key (e.g., "pdfs", "word_documents")
-            search_filter: Domain filter (e.g., ".com.br", "empresa.com")
-            search_query: Replacement text for the quoted part
-            headless: Run browser headless
-            max_results: Max results to return
-            output_dir: Directory for saving results
-        """
         self.search_engine = search_engine
         self.dorks_option = dorks_option
         self.file_type = file_type
@@ -63,8 +54,9 @@ class Executor:
         self.search_query = search_query
         self.headless = headless
         self.max_results = max_results
-        self.output_dir = Path(output_dir)
+        self.output_dir = Path(output_dir).resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.user_data_dir = user_data_dir  # <-- 2. SALVE A VARIÁVEL
         self.result: ExecutionResult | None = None
 
     # ================================================================
@@ -80,7 +72,7 @@ class Executor:
         """
         try:
             command_key = self.dorks_option  # "find_files"
-            file_key = self.file_type        # "pdfs"
+            file_key = self.file_type  # "pdfs"
 
             # Match category key case-insensitively and ignore underscores
             normalized_input = command_key.replace("_", "").lower()
@@ -96,13 +88,20 @@ class Executor:
 
             if not template_data:
                 print(f"[!] No template found for '{command_key}' -> '{file_key}'")
-                print(f"    Available keys in '{actual_command_key}': {list(opt.keys())}")
+                print(
+                    f"    Available keys in '{actual_command_key}': {list(opt.keys())}"
+                )
                 return None
 
-            template = template_data.get("example", "")
+            if actual_command_key == "osint_pessoal":
+                template = template_data.get("dork", template_data.get("example", ""))
+            else:
+                template = template_data.get("example", "")
 
             if not template:
-                print(f"[!] No 'example' field in template for '{command_key}' -> '{file_key}'")
+                print(
+                    f"[!] No template field found for '{command_key}' -> '{file_key}'"
+                )
                 return None
 
             print(f"[*] Template found: {template}")
@@ -111,12 +110,28 @@ class Executor:
         except Exception as e:
             print(f"[!] Error building dork: {e}")
             import traceback
+
             traceback.print_exc()
             return None
 
     def _apply_template(self, template: str) -> str:
         """Apply search_query and search_filter to the template."""
         query = self.search_query.strip()
+
+        # Handle secret OSINT Pessoal feature
+        normalized_option = self.dorks_option.replace("_", "").lower()
+        if normalized_option == "osintpessoal":
+            target_name = query
+            if not target_name:
+                target_name = self.search_filter.strip() if self.search_filter else ""
+            if not target_name:
+                raise ValueError("[!] No target name provided.")
+
+            t = template.replace("nome_pessoa", target_name)
+            if self.search_filter and self.search_filter != target_name and "." in self.search_filter:
+                if "site:" not in t:
+                    t = f"{t} site:*{self.search_filter}"
+            return t
 
         match self.file_type:
             # --- FIND FILES ---
@@ -172,7 +187,7 @@ class Executor:
                 else:
                     t = template
                 if self.search_filter:
-                    t = re.sub(r'-github', f'-{self.search_filter}', t)
+                    t = re.sub(r"-github", f"-{self.search_filter}", t)
                 return t
 
             case "logs":
@@ -205,7 +220,7 @@ class Executor:
                 parts = query.split() if query else ["php", "mysql_connect"]
                 ext = parts[0] if len(parts) > 0 else "php"
                 func = parts[1] if len(parts) > 1 else "mysql_connect"
-                t = re.sub(r'filetype:php', f'filetype:{ext}', template)
+                t = re.sub(r"filetype:php", f"filetype:{ext}", template)
                 return re.sub(r'"mysql_connect"', f'"{func}"', t)
 
             case "files_by_name":
@@ -218,11 +233,13 @@ class Executor:
 
             # --- Default: return template with site filter if provided ---
             case _:
-                print(f"[!] Unknown file_type: '{self.file_type}', returning raw template")
+                print(
+                    f"[!] Unknown file_type: '{self.file_type}', returning raw template"
+                )
                 t = template
                 if self.search_filter:
                     if "site:" in t:
-                        t = re.sub(r'site:\S+', f'site:*{self.search_filter}', t)
+                        t = re.sub(r"site:\S+", f"site:*{self.search_filter}", t)
                     else:
                         t = f"site:*{self.search_filter} {t}"
                 return t
@@ -255,6 +272,7 @@ class Executor:
             engine=self.search_engine,
             headless=self.headless,
             max_results=self.max_results,
+            user_data_dir=self.user_data_dir,   # <-- 3. PASSE PARA O CRAWLER AQUI
         )
         links = await crawler.search()
 
@@ -332,3 +350,4 @@ class Executor:
             f"Executor({self.search_engine!r}, {self.dorks_option!r}, "
             f"{self.file_type!r}, {self.search_filter!r}, {self.search_query!r})"
         )
+

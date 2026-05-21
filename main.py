@@ -14,11 +14,13 @@ Examples:
     python main.py auto find_panels phpmyadmin --filter target.com
 """
 
-import sys
 import argparse
 import asyncio
-from helpers.Executor import Executor
+import sys
+from pathlib import Path
+
 from helpers.Crawler import Crawler
+from helpers.Executor import Executor
 
 
 def parse_args():
@@ -36,63 +38,57 @@ Examples:
 
     parser.add_argument(
         "search_engine",
-        choices=["auto", "google", "duckduckgo", "nodriver", "yahoo"],
-        help="Search engine to use",
+        choices=["auto", "google", "duckduckgo", "nodriver"],
+        help="Search engine to use (nodriver uses real automated Chrome)",
     )
     parser.add_argument(
         "dorks_option",
-        help="Dork category (e.g., find_files, find_panels, find_leaks)",
+        help="Category of dork to use (defined in helpers/manual.py)",
     )
     parser.add_argument(
         "file_type",
-        help="File type / sub-category (e.g., pdfs, word_documents, databases)",
+        help="Specific file type or sub-category option",
     )
     parser.add_argument(
-        "--filter", "-f",
-        dest="search_filter",
-        default=None,
-        help="Domain filter (e.g., .com.br, empresa.com)",
+        "--filter",
+        help="Target domain or extension filter (e.g., '.gov.br' or 'target.com')",
     )
     parser.add_argument(
-        "--query", "-q",
-        dest="search_query",
+        "--query",
         default="",
-        help="Search query text to inject",
+        help="Additional search keywords to append to the dork",
     )
     parser.add_argument(
         "--headless",
         action="store_true",
-        default=False,
-        help="Run browser in headless mode",
+        help="Run nodriver/Chrome browser in background (invisible) mode",
     )
     parser.add_argument(
-        "--max-results", "-n",
+        "--max-results",
         type=int,
         default=30,
-        help="Maximum results to return (default: 30)",
+        help="Maximum number of search results to retrieve (default: 30)",
     )
     parser.add_argument(
-        "--output", "-o",
+        "-o",
+        "--output",
         default="./output",
-        help="Output directory for results (default: ./output)",
+        help="Directory to save JSON results (default: ./output)",
     )
     parser.add_argument(
         "--download",
         action="store_true",
-        default=False,
-        help="Download found files",
+        help="Automatically download discovered files",
     )
     parser.add_argument(
-        "--download-dir", "-d",
-        dest="download_dir",
+        "--download-dir",
         default="./downloads",
-        help="Directory to save downloaded files (default: ./downloads)",
+        help="Directory where files will be downloaded (default: ./downloads)",
     )
     parser.add_argument(
         "--summary-only",
         action="store_true",
-        default=False,
-        help="Only print summary, don't show all links",
+        help="Only display execution summary without listing all URLs",
     )
 
     return parser.parse_args()
@@ -101,81 +97,98 @@ Examples:
 async def main():
     args = parse_args()
 
+    # 1. Resolver o caminho absoluto da pasta do perfil
+    # Descobre dinamicamente a pasta onde o main.py está e aponta para "chrome_profile"
+    BASE_DIR = Path(__file__).parent.resolve()
+    PROFILE_DIR = BASE_DIR / "chrome_profile"
+
     print(f"""
-╔══════════════════════════════════════════════════════╗
-║           GOOGLE DORK AUTOMATION TOOL               ║
-╚══════════════════════════════════════════════════════╝
-    Engine:      {args.search_engine}
-    Category:    {args.dorks_option}
-    File Type:   {args.file_type}
-    Filter:      {args.search_filter or 'N/A'}
-    Query:       {args.search_query or 'N/A'}
-    Headless:    {args.headless}
-    Max Results: {args.max_results}
-    Output Dir:  {args.output}
+============================================================
+ OSYNPY - OSINT Dorking Framework
+============================================================
+  [*] Engine:        {args.search_engine}
+  [*] Category:      {args.dorks_option} -> {args.file_type}
+  [*] Filter:        {args.filter or 'None'}
+  [*] Extra Query:   {args.query or 'None'}
+  [*] Headless Mode: {args.headless}
+  [*] Profile Dir:   {PROFILE_DIR}
+============================================================
     """)
 
-    # Create executor
+    # 2. Inicializar o Executor passando o caminho absoluto da pasta pai do perfil
     executor = Executor(
         search_engine=args.search_engine,
         dorks_option=args.dorks_option,
         file_type=args.file_type,
-        search_filter=args.search_filter,
-        search_query=args.search_query,
+        search_filter=args.filter,
+        search_query=args.query,
         headless=args.headless,
         max_results=args.max_results,
         output_dir=args.output,
+        user_data_dir=PROFILE_DIR,  # <-- Injetado com sucesso aqui
     )
 
-    # Execute
+    # Executar a busca
+    print("[*] Building dork and initiating search sequence...")
     result = await executor.execute()
 
     if result is None:
-        print("[!] Execution failed.")
+        print("[!] Execution failed or returned no data.")
         sys.exit(1)
 
-    # Print summary
+    # Mostrar o resumo da execução no terminal
     print(executor.summary())
 
-    # Print links (unless summary-only)
+    # Listar os links encontrados (a menos que --summary-only tenha sido ativado)
     if not args.summary_only and result.links:
-        print(f"\n[+] Links ({len(result.links)}):")
+        print(f"\n[+] Links Discovered ({len(result.links)}):")
         for i, link in enumerate(result.links, 1):
             print(f"  {i:3d}. {link}")
 
-    # Download if requested or if a custom download directory is provided
+    # 3. Lógica de Download síncrono/assíncrono integrada
     should_download = args.download or args.download_dir != "./downloads"
     if should_download and result.links:
-        # Re-create crawler for download
-        crawler = Crawler(
+        print(f"\n[*] Initializing downloader sequence...")
+        # Recria o crawler focado em download reaproveitando a mesma sessão/perfil
+        download_crawler = Crawler(
             query=result.dork,
             engine=args.search_engine,
             headless=args.headless,
             download_dir=args.download_dir,
-            user_data_dir="./nodriver_profile", 
+            user_data_dir=PROFILE_DIR,  # <-- Usa a mesma pasta pai
         )
-        crawler.links = result.links
-        downloaded = await asyncio.to_thread(crawler.download_all)
-        print(f"\n[📥] Downloaded {len(downloaded)} files to '{args.download_dir}'.")
+        download_crawler.links = result.links
 
-    # Show stats
+        # Executa o download em paralelo usando a thread pool do crawler
+        downloaded = await asyncio.to_thread(download_crawler.download_all)
+        print(
+            f"[📥] Successfully downloaded {len(downloaded)} files to '{args.download_dir}'."
+        )
+
+    # Mostrar estatísticas globais acumuladas da sessão
     stats = Crawler.stats()
     print(f"""
 {'='*60}
-SESSION STATS
+SESSION PERFORMANCE STATS
 {'='*60}
-  Total searches:     {stats.total_searches}
-  nodriver success:   {stats.nodriver_success}
-  DuckDuckGo success: {stats.duckduckgo_success}
-  Google success:     {stats.google_success}
-  Total links:        {stats.total_links_found}
-  Total time:         {stats.total_time:.1f}s
+  Total searches triggered:  {stats.total_searches}
+  nodriver success count:    {stats.nodriver_success}
+  DuckDuckGo success count:  {stats.duckduckgo_success}
+  Google urllib success:     {stats.google_success}
+  Total unique links found:  {stats.total_links_found}
 {'='*60}
     """)
 
-    # Cleanup
+    # 4. Encerramento seguro do Driver (fecha instâncias do Chrome pendentes)
+    print("[*] Post-execution cleanup: Closing shared browser instances...")
     await Crawler.close_driver()
+    print("[+] Done.")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n[!] Execution interrupted by user (Ctrl+C). Exiting safely.")
+        sys.exit(1)
+
