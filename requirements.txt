@@ -5,5 +5,12 @@ nodriver==0.50.3
 playwright==1.60.0
 pyee==13.0.1
 typing_extensions==4.15.0
-websockets==13.1
+websockets>=14.0
 wrapt==2.1.2
+# OSINT expansion
+python-whois>=0.9.5
+dnspython>=2.7.0
+requests>=2.32.0
+rich>=13.9.0
+python-dotenv>=1.0.0
+phonenumbers>=8.13.0
